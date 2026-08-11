@@ -1,0 +1,30 @@
+schema: spec-driven
+
+context: |
+  Forge is a general-purpose software quality control plane written in Rust.
+  It orchestrates existing development, security, testing, dependency, and
+  static analysis tools through adapters, providing a unified model for
+  findings, rules, policies, quality gates, configuration, and reporting.
+  OpenSpec owns behavioral requirements and proposed behavioral deltas only.
+  Architecture decisions and ADRs live in docs/architecture, AI guidance
+  lives in AGENTS.md, and enforcement is planned to live in the forge binary
+  itself once quality gates are implemented.
+
+rules:
+  proposal:
+    - State one implementation intent and the specifications it affects.
+    - Link to existing requirement IDs before proposing new behavior.
+    - Define non-goals for cross-cutting or invasive changes.
+  specs:
+    - Behavior specifications belong only in openspec/specs/<domain>/spec.md.
+    - Change specifications are deltas using ADDED, MODIFIED, or REMOVED Requirements.
+    - Every requirement uses a stable FORGE-<DOMAIN>-<NUMBER> identifier, one observable SHALL or MUST behavior, and at least one GIVEN/WHEN/THEN scenario.
+    - Keep specifications behavior-first; do not prescribe implementation details.
+  design:
+    - Record implementation approach, not behavioral requirements duplicated from specs.
+    - Link durable cross-change decisions to docs/architecture/decisions.
+  tasks:
+    - Keep tasks atomic, traceable to requirement IDs, and immediately verifiable.
+  archive:
+    - Archive only with a closure outcome of completed, cancelled, superseded, or partial.
+    - Sync delta requirements only for completed, verified behavior.
