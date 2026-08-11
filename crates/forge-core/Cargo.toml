@@ -1,0 +1,8 @@
+[package]
+name = "forge-core"
+description = "Core model for the Forge quality control plane: exit codes, errors, and context."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }

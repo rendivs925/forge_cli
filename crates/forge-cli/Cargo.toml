@@ -1,0 +1,15 @@
+[package]
+name = "forge-cli"
+description = "Forge CLI: definition, routing, and command handlers."
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "forge"
+path = "src/main.rs"
+
+[dependencies]
+forge-core = { path = "../forge-core" }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
