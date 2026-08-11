@@ -1,18 +1,30 @@
 use forge_core::{ExitCode, ForgeError};
 
-use crate::cli::GlobalArgs;
-use crate::commands::config as config_cmd;
+use crate::cli::{Format, GlobalArgs};
 
+use super::analyze;
 use super::quality::{QualityResult, report};
 
 pub fn run(global: &GlobalArgs) -> Result<ExitCode, ForgeError> {
-    let _resolved = config_cmd::resolve(global)?;
-    let result = QualityResult {
-        command: "check",
-        status: "pass",
-        findings: 0,
-        message: "no findings".to_string(),
-    };
-    report(global, &result)?;
-    Ok(ExitCode::Success)
+    let analysis = analyze::run(global)?;
+    match global.format {
+        Format::Terminal => {
+            let result = QualityResult {
+                command: "check",
+                status: if analysis.has_execution_failures() {
+                    "execution-failed"
+                } else {
+                    "pass"
+                },
+                findings: analysis.findings.len(),
+                message: format!("{} findings", analysis.findings.len()),
+            };
+            report(global, &result)?;
+        }
+        Format::Json => {
+            let result = analyze::AnalysisResult::from_run("check", &analysis);
+            crate::output::render_json(&result)?;
+        }
+    }
+    Ok(analyze::analysis_exit_code(&analysis, None))
 }

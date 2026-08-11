@@ -53,22 +53,53 @@ fn version_prints_name_and_version() -> std::io::Result<()> {
 
 #[test]
 fn check_exits_success() -> std::io::Result<()> {
-    let output = run(&["check"])?;
+    let dir = unique_dir("check-zero")?;
+    let output = run(&[
+        "check",
+        "--workspace",
+        dir.to_str()
+            .ok_or_else(|| std::io::Error::other("non-utf8 path"))?,
+    ])?;
     assert_eq!(exit_code(&output), 0);
     Ok(())
 }
 
 #[test]
 fn scan_exits_success() -> std::io::Result<()> {
-    let output = run(&["scan"])?;
+    let dir = unique_dir("scan-zero")?;
+    let output = run(&[
+        "scan",
+        "--workspace",
+        dir.to_str()
+            .ok_or_else(|| std::io::Error::other("non-utf8 path"))?,
+    ])?;
     assert_eq!(exit_code(&output), 0);
     Ok(())
 }
 
 #[test]
-fn gate_exits_success() -> std::io::Result<()> {
-    let output = run(&["gate"])?;
-    assert_eq!(exit_code(&output), 0);
+fn gate_without_analysis_exits_usage() -> std::io::Result<()> {
+    let dir = unique_dir("gate-no-analysis")?;
+    let output = run(&[
+        "gate",
+        "--workspace",
+        dir.to_str()
+            .ok_or_else(|| std::io::Error::other("non-utf8 path"))?,
+    ])?;
+    assert_eq!(exit_code(&output), 2);
+    Ok(())
+}
+
+#[test]
+fn gate_after_scan_exits_success() -> std::io::Result<()> {
+    let dir = unique_dir("gate-after-scan")?;
+    let workspace = dir
+        .to_str()
+        .ok_or_else(|| std::io::Error::other("non-utf8 path"))?;
+    let scan = run(&["scan", "--workspace", workspace])?;
+    assert_eq!(exit_code(&scan), 0);
+    let gate = run(&["gate", "--workspace", workspace])?;
+    assert_eq!(exit_code(&gate), 0);
     Ok(())
 }
 
@@ -81,7 +112,15 @@ fn doctor_exits_success() -> std::io::Result<()> {
 
 #[test]
 fn json_output_is_valid_json() -> std::io::Result<()> {
-    let output = run(&["check", "--format", "json"])?;
+    let dir = unique_dir("check-json")?;
+    let output = run(&[
+        "check",
+        "--format",
+        "json",
+        "--workspace",
+        dir.to_str()
+            .ok_or_else(|| std::io::Error::other("non-utf8 path"))?,
+    ])?;
     let stdout_text = stdout(&output);
     assert_eq!(exit_code(&output), 0);
     let value: serde_json::Value =
@@ -211,5 +250,170 @@ fn missing_explicit_config_exits_config_error() -> std::io::Result<()> {
             .ok_or_else(|| std::io::Error::other("non-utf8 path"))?,
     ])?;
     assert_eq!(exit_code(&output), 2);
+    Ok(())
+}
+
+fn write_file(path: &std::path::Path, content: &str) -> std::io::Result<()> {
+    std::fs::write(path, content)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))?;
+    }
+    Ok(())
+}
+
+const FAKE_TOOL: &str = r#"#!/bin/sh
+echo '{"id":"demo:demo.rule:src/app.rs:1:0:secret leaked","analyzer_id":"demo","rule_id":"demo.rule","severity":"blocker","category":"security","location":{"file":"src/app.rs","start_line":1,"start_column":0,"end_line":1,"end_column":0},"message":"secret leaked","remediation":"remove the secret"}'
+"#;
+
+const CLEAN_TOOL: &str = "#!/bin/sh\nexit 0\n";
+
+#[test]
+fn scan_with_failing_tool_exits_tool_error() -> std::io::Result<()> {
+    let dir = unique_dir("tool-missing")?;
+    let workspace = dir
+        .to_str()
+        .ok_or_else(|| std::io::Error::other("non-utf8 path"))?;
+    let config_path = dir.join("forge.toml");
+    write_config(
+        &config_path,
+        r#"
+schema = 1
+profile = "default"
+[profiles.default]
+tools = ["ghost-tool"]
+
+[tools.ghost-tool]
+executable = "forge-no-such-executable"
+"#,
+    )?;
+    let config = config_path
+        .to_str()
+        .ok_or_else(|| std::io::Error::other("non-utf8 path"))?;
+    let output = run(&["scan", "--config", config, "--workspace", workspace])?;
+    assert_eq!(exit_code(&output), 3);
+    Ok(())
+}
+
+#[test]
+fn scan_with_finding_and_gate_fails() -> std::io::Result<()> {
+    let dir = unique_dir("gate-fails")?;
+    let workspace = dir
+        .to_str()
+        .ok_or_else(|| std::io::Error::other("non-utf8 path"))?;
+    let tool_path = dir.join("fake-tool.sh");
+    write_file(&tool_path, FAKE_TOOL)?;
+    let tool = tool_path
+        .to_str()
+        .ok_or_else(|| std::io::Error::other("non-utf8 path"))?;
+    let config_path = dir.join("forge.toml");
+    write_config(
+        &config_path,
+        &format!(
+            r#"
+schema = 1
+profile = "default"
+gate_policy = "strict"
+[profiles.default]
+tools = ["demo"]
+
+[tools.demo]
+executable = "{tool}"
+
+[policies.strict]
+max_blockers = 0
+"#
+        ),
+    )?;
+    let config = config_path
+        .to_str()
+        .ok_or_else(|| std::io::Error::other("non-utf8 path"))?;
+    let output = run(&[
+        "scan",
+        "--gate",
+        "--config",
+        config,
+        "--workspace",
+        workspace,
+    ])?;
+    assert_eq!(exit_code(&output), 1);
+    Ok(())
+}
+
+#[test]
+fn scan_with_clean_tool_and_gate_passes() -> std::io::Result<()> {
+    let dir = unique_dir("gate-passes")?;
+    let workspace = dir
+        .to_str()
+        .ok_or_else(|| std::io::Error::other("non-utf8 path"))?;
+    let tool_path = dir.join("clean-tool.sh");
+    write_file(&tool_path, CLEAN_TOOL)?;
+    let tool = tool_path
+        .to_str()
+        .ok_or_else(|| std::io::Error::other("non-utf8 path"))?;
+    let config_path = dir.join("forge.toml");
+    write_config(
+        &config_path,
+        &format!(
+            r#"
+schema = 1
+profile = "default"
+[profiles.default]
+tools = ["demo"]
+
+[tools.demo]
+executable = "{tool}"
+"#
+        ),
+    )?;
+    let config = config_path
+        .to_str()
+        .ok_or_else(|| std::io::Error::other("non-utf8 path"))?;
+    let output = run(&[
+        "scan",
+        "--gate",
+        "--config",
+        config,
+        "--workspace",
+        workspace,
+    ])?;
+    assert_eq!(exit_code(&output), 0);
+    Ok(())
+}
+
+#[test]
+fn scan_persists_analysis_for_gate() -> std::io::Result<()> {
+    let dir = unique_dir("persist")?;
+    let workspace = dir
+        .to_str()
+        .ok_or_else(|| std::io::Error::other("non-utf8 path"))?;
+    let tool_path = dir.join("fake-tool.sh");
+    write_file(&tool_path, FAKE_TOOL)?;
+    let tool = tool_path
+        .to_str()
+        .ok_or_else(|| std::io::Error::other("non-utf8 path"))?;
+    let config_path = dir.join("forge.toml");
+    write_config(
+        &config_path,
+        &format!(
+            r#"
+schema = 1
+profile = "default"
+[profiles.default]
+tools = ["demo"]
+
+[tools.demo]
+executable = "{tool}"
+"#
+        ),
+    )?;
+    let config = config_path
+        .to_str()
+        .ok_or_else(|| std::io::Error::other("non-utf8 path"))?;
+    let scan = run(&["scan", "--config", config, "--workspace", workspace])?;
+    assert_eq!(exit_code(&scan), 0);
+    let gate = run(&["gate", "--config", config, "--workspace", workspace])?;
+    assert_eq!(exit_code(&gate), 1);
     Ok(())
 }

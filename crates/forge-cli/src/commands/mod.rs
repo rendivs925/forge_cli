@@ -1,3 +1,4 @@
+mod analyze;
 mod check;
 mod config;
 mod doctor;

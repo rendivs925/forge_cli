@@ -5,10 +5,23 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{ForgeConfig, SUPPORTED_SCHEMA_VERSION};
+use crate::config::{
+    ForgeConfig, PolicyConfig, ProfileConfig, RuleConfig, SUPPORTED_SCHEMA_VERSION, ToolConfig,
+};
 use crate::error::ConfigError;
 
-const CONFIG_KEYS: [&str; 5] = ["schema", "profile", "offline", "no_cache", "fail_fast"];
+const CONFIG_KEYS: [&str; 10] = [
+    "schema",
+    "profile",
+    "offline",
+    "no_cache",
+    "fail_fast",
+    "gate_policy",
+    "profiles",
+    "tools",
+    "rules",
+    "policies",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -176,6 +189,16 @@ struct RawConfig {
     no_cache: Option<bool>,
     #[serde(default)]
     fail_fast: Option<bool>,
+    #[serde(default)]
+    gate_policy: Option<String>,
+    #[serde(default)]
+    profiles: HashMap<String, ProfileConfig>,
+    #[serde(default)]
+    tools: HashMap<String, ToolConfig>,
+    #[serde(default)]
+    rules: HashMap<String, RuleConfig>,
+    #[serde(default)]
+    policies: HashMap<String, PolicyConfig>,
 }
 
 fn apply_layer(
@@ -216,6 +239,41 @@ fn apply_layer(
         config.fail_fast = fail_fast;
         provenance
             .entry("fail_fast".to_string())
+            .or_default()
+            .push(layer.clone());
+    }
+    if let Some(gate_policy) = &raw.gate_policy {
+        config.gate_policy = Some(gate_policy.clone());
+        provenance
+            .entry("gate_policy".to_string())
+            .or_default()
+            .push(layer.clone());
+    }
+    if !raw.profiles.is_empty() {
+        config.profiles.clone_from(&raw.profiles);
+        provenance
+            .entry("profiles".to_string())
+            .or_default()
+            .push(layer.clone());
+    }
+    if !raw.tools.is_empty() {
+        config.tools.clone_from(&raw.tools);
+        provenance
+            .entry("tools".to_string())
+            .or_default()
+            .push(layer.clone());
+    }
+    if !raw.rules.is_empty() {
+        config.rules.clone_from(&raw.rules);
+        provenance
+            .entry("rules".to_string())
+            .or_default()
+            .push(layer.clone());
+    }
+    if !raw.policies.is_empty() {
+        config.policies.clone_from(&raw.policies);
+        provenance
+            .entry("policies".to_string())
             .or_default()
             .push(layer.clone());
     }
@@ -270,11 +328,59 @@ fn validate(config: &ForgeConfig) -> Result<(), ConfigError> {
             ),
         });
     }
-    if let Some(profile) = &config.profile && profile.trim().is_empty() {
+    if let Some(profile) = &config.profile
+        && profile.trim().is_empty()
+    {
         return Err(ConfigError::Invalid {
             key: "profile".to_string(),
             message: "profile must not be empty".to_string(),
         });
+    }
+    validate_profile_refs(config)?;
+    validate_tools(config)?;
+    Ok(())
+}
+
+fn validate_profile_refs(config: &ForgeConfig) -> Result<(), ConfigError> {
+    let Some(profile_name) = &config.profile else {
+        return Ok(());
+    };
+    let Some(profile) = config.profiles.get(profile_name) else {
+        return Ok(());
+    };
+    for tool in &profile.tools {
+        let Some(tool_config) = config.tools.get(tool) else {
+            return Err(ConfigError::Invalid {
+                key: "profiles".to_string(),
+                message: format!("profile '{profile_name}' references unknown tool '{tool}'"),
+            });
+        };
+        if !tool_config.enabled {
+            return Err(ConfigError::Invalid {
+                key: "profiles".to_string(),
+                message: format!("profile '{profile_name}' references disabled tool '{tool}'"),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_tools(config: &ForgeConfig) -> Result<(), ConfigError> {
+    for (name, tool) in &config.tools {
+        if tool.executable.trim().is_empty() {
+            return Err(ConfigError::Invalid {
+                key: "tools".to_string(),
+                message: format!("tool '{name}' has an empty executable"),
+            });
+        }
+        if let Some(args) = &tool.version_command
+            && args.is_empty()
+        {
+            return Err(ConfigError::Invalid {
+                key: "tools".to_string(),
+                message: format!("tool '{name}' has an empty version command"),
+            });
+        }
     }
     Ok(())
 }
@@ -402,5 +508,94 @@ mod tests {
         );
         let err = resolver.resolve().unwrap_err();
         assert!(matches!(err, ConfigError::Io { .. }));
+    }
+
+    #[test]
+    fn tools_and_policies_resolve_with_provenance() {
+        let dir = unique_temp_dir("analysis-keys").unwrap();
+        let path = dir.join("forge.toml");
+        write_config(
+            &path,
+            r#"
+schema = 1
+gate_policy = "strict"
+[tools.semgrep]
+executable = "semgrep"
+args = ["scan", "--json"]
+timeout_secs = 60
+
+[policies.strict]
+max_blockers = 0
+max_critical = 0
+"#,
+        )
+        .unwrap();
+        let resolver = ConfigResolver::new(dir, None, CliOverrides::default());
+        let resolved = resolver.resolve().unwrap();
+        assert_eq!(resolved.config.gate_policy, Some("strict".to_string()));
+        assert_eq!(resolved.config.tools["semgrep"].executable, "semgrep");
+        assert_eq!(
+            resolved.config.tools["semgrep"].args,
+            vec!["scan", "--json"]
+        );
+        assert_eq!(resolved.config.tools["semgrep"].timeout_secs, Some(60));
+        assert_eq!(resolved.config.policies["strict"].max_blockers, Some(0));
+        assert!(resolved.provenance.contains_key("tools"));
+        assert!(resolved.provenance.contains_key("policies"));
+    }
+
+    #[test]
+    fn profile_referencing_unknown_tool_is_invalid() {
+        let dir = unique_temp_dir("bad-profile-ref").unwrap();
+        let path = dir.join("forge.toml");
+        write_config(
+            &path,
+            r#"
+schema = 1
+profile = "comprehensive"
+[profiles.comprehensive]
+tools = ["does-not-exist"]
+"#,
+        )
+        .unwrap();
+        let resolver = ConfigResolver::new(dir, None, CliOverrides::default());
+        let err = resolver.resolve().unwrap_err();
+        assert!(matches!(err, ConfigError::Invalid { .. }));
+    }
+
+    #[test]
+    fn empty_tool_executable_is_invalid() {
+        let dir = unique_temp_dir("empty-executable").unwrap();
+        let path = dir.join("forge.toml");
+        write_config(
+            &path,
+            r#"
+schema = 1
+[tools.bad]
+executable = ""
+"#,
+        )
+        .unwrap();
+        let resolver = ConfigResolver::new(dir, None, CliOverrides::default());
+        let err = resolver.resolve().unwrap_err();
+        assert!(matches!(err, ConfigError::Invalid { .. }));
+    }
+
+    #[test]
+    fn rule_override_resolves() {
+        let dir = unique_temp_dir("rule-override").unwrap();
+        let path = dir.join("forge.toml");
+        write_config(
+            &path,
+            r#"
+schema = 1
+[rules."security.sql-injection"]
+enabled = false
+"#,
+        )
+        .unwrap();
+        let resolver = ConfigResolver::new(dir, None, CliOverrides::default());
+        let resolved = resolver.resolve().unwrap();
+        assert!(!resolved.config.rules["security.sql-injection"].enabled);
     }
 }

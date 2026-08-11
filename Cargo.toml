@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/forge-cli", "crates/forge-config", "crates/forge-core"]
+members = ["crates/forge-cli", "crates/forge-analysis", "crates/forge-config", "crates/forge-core"]
 resolver = "3"
 
 [workspace.package]

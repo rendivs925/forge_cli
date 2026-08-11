@@ -9,6 +9,7 @@ name = "forge"
 path = "src/main.rs"
 
 [dependencies]
+forge-analysis = { path = "../forge-analysis" }
 forge-config = { path = "../forge-config" }
 forge-core = { path = "../forge-core" }
 clap = { workspace = true }

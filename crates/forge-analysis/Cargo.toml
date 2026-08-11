@@ -1,0 +1,10 @@
+[package]
+name = "forge-analysis"
+description = "Forge analysis: finding model, analyzer contract, engine, and quality gate evaluation."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+forge-core = { path = "../forge-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
