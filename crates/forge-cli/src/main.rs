@@ -1,6 +1,7 @@
 mod cli;
 mod commands;
 mod output;
+mod workspace;
 
 use std::process::ExitCode as ProcessExitCode;
 

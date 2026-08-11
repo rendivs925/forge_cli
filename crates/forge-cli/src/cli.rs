@@ -48,16 +48,16 @@ pub struct GlobalArgs {
     pub workspace: Option<PathBuf>,
 
     /// Do not access the network
-    #[arg(long = "offline", global = true)]
-    pub offline: bool,
+    #[arg(long = "offline", action = ArgAction::SetTrue, global = true)]
+    pub offline: Option<bool>,
 
     /// Disable the analysis cache
-    #[arg(long = "no-cache", global = true)]
-    pub no_cache: bool,
+    #[arg(long = "no-cache", action = ArgAction::SetTrue, global = true)]
+    pub no_cache: Option<bool>,
 
     /// Stop after the first failure
-    #[arg(long = "fail-fast", global = true)]
-    pub fail_fast: bool,
+    #[arg(long = "fail-fast", action = ArgAction::SetTrue, global = true)]
+    pub fail_fast: Option<bool>,
 
     /// Report command timings
     #[arg(long = "timings", global = true)]

@@ -1,10 +1,11 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use forge_core::{ExitCode, ForgeError};
 use serde::Serialize;
 
 use crate::cli::{Format, GlobalArgs};
 use crate::output;
+use crate::workspace;
 
 #[derive(Debug, Serialize)]
 pub struct CheckResult {
@@ -14,7 +15,7 @@ pub struct CheckResult {
 }
 
 pub fn run(global: &GlobalArgs) -> Result<ExitCode, ForgeError> {
-    let root = workspace_root(global);
+    let root = workspace::workspace_root(global);
     let checks = [
         git_repository(&root),
         cargo_manifest(&root),
@@ -40,13 +41,6 @@ pub fn run(global: &GlobalArgs) -> Result<ExitCode, ForgeError> {
     } else {
         Ok(ExitCode::Success)
     }
-}
-
-fn workspace_root(global: &GlobalArgs) -> PathBuf {
-    global
-        .workspace
-        .clone()
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
 }
 
 fn git_repository(root: &Path) -> CheckResult {

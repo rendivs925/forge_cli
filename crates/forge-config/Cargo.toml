@@ -1,0 +1,10 @@
+[package]
+name = "forge-config"
+description = "Forge configuration: layered TOML loading, resolution, validation, and provenance."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+forge-core = { path = "../forge-core" }
+serde = { workspace = true }
+toml = { workspace = true }

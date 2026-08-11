@@ -1,4 +1,5 @@
 mod check;
+mod config;
 mod doctor;
 mod gate;
 mod init;
@@ -18,6 +19,7 @@ pub fn run(cli: Cli) -> Result<ExitCode, ForgeError> {
         Command::Doctor => doctor::run(&cli.global),
         Command::Version => version::run(&cli.global),
         Command::Init => init::run(&cli.global),
+        Command::Config(args) => config::run(&cli.global, &args),
         other => Err(ForgeError::Usage(format!(
             "command '{}' is not yet implemented",
             command_name(&other)
